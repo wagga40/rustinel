@@ -22,6 +22,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt, clippy
+          targets: aarch64-pc-windows-msvc
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -35,27 +36,43 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
 
-      - name: Build release
+      - name: Build release (x86_64)
         run: cargo build --release --verbose
 
-      - name: Verify binary
+      - name: Build release (arm64)
+        run: cargo build --release --target aarch64-pc-windows-msvc --verbose
+
+      - name: Verify binaries
         run: |
-          if (!(Test-Path target/release/rustinel.exe)) {
-            Write-Error "Binary not found at target/release/rustinel.exe"
+          $hostBin = "target/release/rustinel.exe"
+          $armBin = "target/aarch64-pc-windows-msvc/release/rustinel.exe"
+          if (!(Test-Path $hostBin)) {
+            Write-Error "Binary not found at $hostBin"
             exit 1
           }
-          $size = (Get-Item target/release/rustinel.exe).Length
-          $sizeMB = [math]::Round($size / 1MB, 2)
-          Write-Output "✓ Binary created successfully"
-          Write-Output "  Size: $sizeMB MB"
-          Write-Output "  Path: target/release/rustinel.exe"
+          if (!(Test-Path $armBin)) {
+            Write-Error "Binary not found at $armBin"
+            exit 1
+          }
+          $size64 = (Get-Item $hostBin).Length
+          $sizeArm = (Get-Item $armBin).Length
+          Write-Output "✓ x86_64 binary: $([math]::Round($size64 / 1MB, 2)) MB"
+          Write-Output "✓ arm64 binary:  $([math]::Round($sizeArm / 1MB, 2)) MB"
 
-      - name: Upload release binary
+      - name: Upload x86_64 binary
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
-          name: rustinel-binary
+          name: rustinel-binary-x86_64
           path: target/release/rustinel.exe
+          retention-days: 1
+
+      - name: Upload arm64 binary
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustinel-binary-arm64
+          path: target/aarch64-pc-windows-msvc/release/rustinel.exe
           retention-days: 1
 
   release:
@@ -69,84 +86,69 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download binary artifact
+      - name: Download x86_64 binary
         uses: actions/download-artifact@v4
         with:
-          name: rustinel-binary
-          path: target/release/
+          name: rustinel-binary-x86_64
+          path: dist/x86_64
+
+      - name: Download arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: rustinel-binary-arm64
+          path: dist/arm64
 
       - name: Extract version from tag
         id: get_version
         run: |
           $version = "${{ github.ref_name }}" -replace '^v', ''
           echo "version=$version" >> $env:GITHUB_OUTPUT
-          echo "package_name=rustinel-$version-x86_64-pc-windows-msvc" >> $env:GITHUB_OUTPUT
+          echo "package_x86_64=rustinel-$version-x86_64-pc-windows-msvc" >> $env:GITHUB_OUTPUT
+          echo "package_arm64=rustinel-$version-aarch64-pc-windows-msvc" >> $env:GITHUB_OUTPUT
           Write-Output "Version: $version"
-          Write-Output "Package: rustinel-$version-x86_64-pc-windows-msvc"
+          Write-Output "Packages: x86_64 and aarch64 (arm64)"
 
-      - name: Create package structure
+      - name: Create package structures
         run: |
-          $pkg = "${{ steps.get_version.outputs.package_name }}"
-          Write-Output "Creating package structure: $pkg"
-
-          # Create main directory
-          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
-
-          # Create subdirectories
-          New-Item -ItemType Directory -Force -Path $pkg/rules/sigma | Out-Null
-          New-Item -ItemType Directory -Force -Path $pkg/rules/yara | Out-Null
-          New-Item -ItemType Directory -Force -Path $pkg/logs | Out-Null
-
-          # Copy main files
-          Write-Output "Copying binary..."
-          Copy-Item target/release/rustinel.exe $pkg/
-
-          Write-Output "Copying config..."
-          Copy-Item config.toml $pkg/
-
-          Write-Output "Copying README..."
-          Copy-Item README.md $pkg/
-
-          # Copy example rules if they exist
-          $sigmaRules = Get-ChildItem -Path "rules/sigma/*" -Include *.yml,*.yaml -File -ErrorAction SilentlyContinue
-          if ($sigmaRules) {
-            Write-Output "Copying Sigma rules..."
-            Copy-Item $sigmaRules $pkg/rules/sigma/ -ErrorAction SilentlyContinue
-          } else {
-            Write-Output "No Sigma rules found, creating .gitkeep"
-            New-Item -ItemType File -Path $pkg/rules/sigma/.gitkeep -Force | Out-Null
+          $targets = @(
+            @{ name = "x86_64"; pkg = "${{ steps.get_version.outputs.package_x86_64 }}"; bin = "dist/x86_64/rustinel.exe" },
+            @{ name = "arm64";  pkg = "${{ steps.get_version.outputs.package_arm64 }}";  bin = "dist/arm64/rustinel.exe" }
+          )
+          foreach ($t in $targets) {
+            $pkg = $t.pkg
+            Write-Output "Creating package: $pkg"
+            New-Item -ItemType Directory -Force -Path $pkg | Out-Null
+            New-Item -ItemType Directory -Force -Path $pkg/rules/sigma | Out-Null
+            New-Item -ItemType Directory -Force -Path $pkg/rules/yara | Out-Null
+            New-Item -ItemType Directory -Force -Path $pkg/logs | Out-Null
+            Copy-Item $t.bin $pkg/rustinel.exe
+            Copy-Item config.toml $pkg/
+            Copy-Item README.md $pkg/
+            $sigmaRules = Get-ChildItem -Path "rules/sigma/*" -Include *.yml,*.yaml -File -ErrorAction SilentlyContinue
+            if ($sigmaRules) { Copy-Item $sigmaRules $pkg/rules/sigma/ -ErrorAction SilentlyContinue }
+            else { New-Item -ItemType File -Path $pkg/rules/sigma/.gitkeep -Force | Out-Null }
+            $yaraRules = Get-ChildItem -Path "rules/yara/*" -Include *.yar,*.yara -File -ErrorAction SilentlyContinue
+            if ($yaraRules) { Copy-Item $yaraRules $pkg/rules/yara/ -ErrorAction SilentlyContinue }
+            else { New-Item -ItemType File -Path $pkg/rules/yara/.gitkeep -Force | Out-Null }
+            New-Item -ItemType File -Path $pkg/logs/.gitkeep -Force | Out-Null
           }
+          Write-Output "Package structures created successfully"
 
-          $yaraRules = Get-ChildItem -Path "rules/yara/*" -Include *.yar,*.yara -File -ErrorAction SilentlyContinue
-          if ($yaraRules) {
-            Write-Output "Copying YARA rules..."
-            Copy-Item $yaraRules $pkg/rules/yara/ -ErrorAction SilentlyContinue
-          } else {
-            Write-Output "No YARA rules found, creating .gitkeep"
-            New-Item -ItemType File -Path $pkg/rules/yara/.gitkeep -Force | Out-Null
-          }
-
-          # Create .gitkeep for logs directory
-          New-Item -ItemType File -Path $pkg/logs/.gitkeep -Force | Out-Null
-
-          Write-Output "Package structure created successfully"
-
-      - name: Create ZIP archive
+      - name: Create ZIP archives
         run: |
-          $pkg = "${{ steps.get_version.outputs.package_name }}"
-          Write-Output "Creating ZIP archive: $pkg.zip"
-          Compress-Archive -Path $pkg -DestinationPath "$pkg.zip" -Force
-
-          $size = (Get-Item "$pkg.zip").Length
-          $sizeMB = [math]::Round($size / 1MB, 2)
-          Write-Output "✓ ZIP created successfully"
-          Write-Output "  Size: $sizeMB MB"
-          Write-Output "  File: $pkg.zip"
+          $pkg64 = "${{ steps.get_version.outputs.package_x86_64 }}"
+          $pkgArm = "${{ steps.get_version.outputs.package_arm64 }}"
+          Compress-Archive -Path $pkg64 -DestinationPath "$pkg64.zip" -Force
+          Compress-Archive -Path $pkgArm -DestinationPath "$pkgArm.zip" -Force
+          Write-Output "✓ $pkg64.zip"
+          Write-Output "✓ $pkgArm.zip"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ steps.get_version.outputs.package_name }}.zip
+          files: |
+            ${{ steps.get_version.outputs.package_x86_64 }}.zip
+            ${{ steps.get_version.outputs.package_arm64 }}.zip
           generate_release_notes: true
           draft: false
           prerelease: false
@@ -154,7 +156,9 @@ jobs:
           body: |
             ## Installation
 
-            1. Download `${{ steps.get_version.outputs.package_name }}.zip`
+            1. Download the ZIP for your architecture:
+               - **x86_64:** `${{ steps.get_version.outputs.package_x86_64 }}.zip`
+               - **arm64:** `${{ steps.get_version.outputs.package_arm64 }}.zip`
             2. Extract to your desired location
             3. Review and customize `config.toml`
             4. Add Sigma rules to `rules/sigma/`
@@ -163,7 +167,7 @@ jobs:
 
             ## Requirements
 
-            - Windows 10/11 or Server 2016+ (x64)
+            - Windows 10/11 or Server 2016+ (x64 or ARM64)
             - Administrator privileges (required for ETW access)
             - Rust runtime NOT required (statically linked binary)
 
