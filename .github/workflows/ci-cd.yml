@@ -102,23 +102,16 @@ jobs:
           }
           Write-Output "Package structures created successfully"
 
-      - name: Create ZIP archives
-        run: |
-          Compress-Archive -Path "rustinel-x86_64-pc-windows-msvc" -DestinationPath "rustinel-x86_64-pc-windows-msvc.zip" -Force
-          Compress-Archive -Path "rustinel-aarch64-pc-windows-msvc" -DestinationPath "rustinel-aarch64-pc-windows-msvc.zip" -Force
-          Write-Output "✓ rustinel-x86_64-pc-windows-msvc.zip"
-          Write-Output "✓ rustinel-aarch64-pc-windows-msvc.zip"
-
       - name: Upload x86_64 package
         uses: actions/upload-artifact@v4
         with:
           name: rustinel-x86_64-pc-windows-msvc
-          path: rustinel-x86_64-pc-windows-msvc.zip
+          path: rustinel-x86_64-pc-windows-msvc/
           retention-days: 1
 
       - name: Upload arm64 package
         uses: actions/upload-artifact@v4
         with:
           name: rustinel-aarch64-pc-windows-msvc
-          path: rustinel-aarch64-pc-windows-msvc.zip
+          path: rustinel-aarch64-pc-windows-msvc/
           retention-days: 1
