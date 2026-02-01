@@ -108,7 +108,7 @@ jobs:
           Copy-Item README.md $pkg/
 
           # Copy example rules if they exist
-          $sigmaRules = Get-ChildItem -Path rules/sigma -Include *.yml,*.yaml -File -ErrorAction SilentlyContinue
+          $sigmaRules = Get-ChildItem -Path "rules/sigma/*" -Include *.yml,*.yaml -File -ErrorAction SilentlyContinue
           if ($sigmaRules) {
             Write-Output "Copying Sigma rules..."
             Copy-Item $sigmaRules $pkg/rules/sigma/ -ErrorAction SilentlyContinue
@@ -117,7 +117,7 @@ jobs:
             New-Item -ItemType File -Path $pkg/rules/sigma/.gitkeep -Force | Out-Null
           }
 
-          $yaraRules = Get-ChildItem -Path rules/yara -Include *.yar,*.yara -File -ErrorAction SilentlyContinue
+          $yaraRules = Get-ChildItem -Path "rules/yara/*" -Include *.yar,*.yara -File -ErrorAction SilentlyContinue
           if ($yaraRules) {
             Write-Output "Copying YARA rules..."
             Copy-Item $yaraRules $pkg/rules/yara/ -ErrorAction SilentlyContinue
