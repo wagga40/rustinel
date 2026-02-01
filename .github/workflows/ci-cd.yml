@@ -87,6 +87,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
 
       - name: Download x86_64 binary
         uses: actions/download-artifact@v4
@@ -112,6 +114,10 @@ jobs:
 
       - name: Create package structures
         run: |
+          $root = $env:GITHUB_WORKSPACE
+          if (-not (Test-Path "$root/config.toml")) { Write-Error "config.toml not found in repo root"; exit 1 }
+          if (-not (Test-Path "$root/README.md")) { Write-Error "README.md not found in repo root"; exit 1 }
+
           $targets = @(
             @{ name = "x86_64"; pkg = "${{ steps.get_version.outputs.package_x86_64 }}"; bin = "dist/x86_64/rustinel.exe" },
             @{ name = "arm64";  pkg = "${{ steps.get_version.outputs.package_arm64 }}";  bin = "dist/arm64/rustinel.exe" }
@@ -123,16 +129,26 @@ jobs:
             New-Item -ItemType Directory -Force -Path $pkg/rules/sigma | Out-Null
             New-Item -ItemType Directory -Force -Path $pkg/rules/yara | Out-Null
             New-Item -ItemType Directory -Force -Path $pkg/logs | Out-Null
-            Copy-Item $t.bin $pkg/rustinel.exe
-            Copy-Item config.toml $pkg/
-            Copy-Item README.md $pkg/
-            $sigmaRules = Get-ChildItem -Path "rules/sigma/*" -Include *.yml,*.yaml -File -ErrorAction SilentlyContinue
-            if ($sigmaRules) { Copy-Item $sigmaRules $pkg/rules/sigma/ -ErrorAction SilentlyContinue }
-            else { New-Item -ItemType File -Path $pkg/rules/sigma/.gitkeep -Force | Out-Null }
-            $yaraRules = Get-ChildItem -Path "rules/yara/*" -Include *.yar,*.yara -File -ErrorAction SilentlyContinue
-            if ($yaraRules) { Copy-Item $yaraRules $pkg/rules/yara/ -ErrorAction SilentlyContinue }
-            else { New-Item -ItemType File -Path $pkg/rules/yara/.gitkeep -Force | Out-Null }
-            New-Item -ItemType File -Path $pkg/logs/.gitkeep -Force | Out-Null
+
+            Copy-Item $t.bin $pkg/rustinel.exe -Force
+            Copy-Item "$root/config.toml" $pkg/ -Force
+            Copy-Item "$root/README.md" $pkg/ -Force
+
+            if (Test-Path "$root/rules/sigma") {
+              Copy-Item -Path "$root/rules/sigma" -Destination "$pkg/rules/" -Recurse -Force
+            }
+            if (-not (Get-ChildItem "$pkg/rules/sigma" -File -ErrorAction SilentlyContinue)) {
+              New-Item -ItemType File -Path "$pkg/rules/sigma/.gitkeep" -Force | Out-Null
+            }
+
+            if (Test-Path "$root/rules/yara") {
+              Copy-Item -Path "$root/rules/yara" -Destination "$pkg/rules/" -Recurse -Force
+            }
+            if (-not (Get-ChildItem "$pkg/rules/yara" -File -ErrorAction SilentlyContinue)) {
+              New-Item -ItemType File -Path "$pkg/rules/yara/.gitkeep" -Force | Out-Null
+            }
+
+            New-Item -ItemType File -Path "$pkg/logs/.gitkeep" -Force | Out-Null
           }
           Write-Output "Package structures created successfully"
 
