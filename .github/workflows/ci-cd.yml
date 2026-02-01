@@ -23,7 +23,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt, clippy
-          targets: aarch64-pc-windows-msvc
+          target: aarch64-pc-windows-msvc
 
       - name: Install aarch64-pc-windows-msvc target
         run: rustup target add aarch64-pc-windows-msvc
