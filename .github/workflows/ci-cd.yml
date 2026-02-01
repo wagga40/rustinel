@@ -3,7 +3,6 @@ name: CI/CD
 on:
   push:
     branches: [ master, main ]
-    tags: [ 'v*' ]
   pull_request:
     branches: [ master, main ]
   workflow_dispatch:
@@ -63,64 +62,15 @@ jobs:
           Write-Output "✓ x86_64 binary: $([math]::Round($size64 / 1MB, 2)) MB"
           Write-Output "✓ arm64 binary:  $([math]::Round($sizeArm / 1MB, 2)) MB"
 
-      - name: Upload x86_64 binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: rustinel-binary-x86_64
-          path: target/release/rustinel.exe
-          retention-days: 1
-
-      - name: Upload arm64 binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: rustinel-binary-arm64
-          path: target/aarch64-pc-windows-msvc/release/rustinel.exe
-          retention-days: 1
-
-  release:
-    name: Create Release
-    runs-on: windows-latest
-    needs: test
-    if: startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref }}
-
-      - name: Download x86_64 binary
-        uses: actions/download-artifact@v4
-        with:
-          name: rustinel-binary-x86_64
-          path: dist/x86_64
-
-      - name: Download arm64 binary
-        uses: actions/download-artifact@v4
-        with:
-          name: rustinel-binary-arm64
-          path: dist/arm64
-
-      - name: Extract version from tag
-        id: get_version
-        run: |
-          $version = "${{ github.ref_name }}" -replace '^v', ''
-          echo "version=$version" >> $env:GITHUB_OUTPUT
-          echo "package_x86_64=rustinel-$version-x86_64-pc-windows-msvc" >> $env:GITHUB_OUTPUT
-          echo "package_arm64=rustinel-$version-aarch64-pc-windows-msvc" >> $env:GITHUB_OUTPUT
-          Write-Output "Version: $version"
-          Write-Output "Packages: x86_64 and aarch64 (arm64)"
-
-      - name: Create package structures
+      - name: Create packages
         run: |
           $root = $env:GITHUB_WORKSPACE
           if (-not (Test-Path "$root/config.toml")) { Write-Error "config.toml not found in repo root"; exit 1 }
           if (-not (Test-Path "$root/README.md")) { Write-Error "README.md not found in repo root"; exit 1 }
 
           $targets = @(
-            @{ name = "x86_64"; pkg = "${{ steps.get_version.outputs.package_x86_64 }}"; bin = "dist/x86_64/rustinel.exe" },
-            @{ name = "arm64";  pkg = "${{ steps.get_version.outputs.package_arm64 }}";  bin = "dist/arm64/rustinel.exe" }
+            @{ pkg = "rustinel-x86_64-pc-windows-msvc"; bin = "target/release/rustinel.exe" },
+            @{ pkg = "rustinel-aarch64-pc-windows-msvc"; bin = "target/aarch64-pc-windows-msvc/release/rustinel.exe" }
           )
           foreach ($t in $targets) {
             $pkg = $t.pkg
@@ -154,41 +104,21 @@ jobs:
 
       - name: Create ZIP archives
         run: |
-          $pkg64 = "${{ steps.get_version.outputs.package_x86_64 }}"
-          $pkgArm = "${{ steps.get_version.outputs.package_arm64 }}"
-          Compress-Archive -Path $pkg64 -DestinationPath "$pkg64.zip" -Force
-          Compress-Archive -Path $pkgArm -DestinationPath "$pkgArm.zip" -Force
-          Write-Output "✓ $pkg64.zip"
-          Write-Output "✓ $pkgArm.zip"
+          Compress-Archive -Path "rustinel-x86_64-pc-windows-msvc" -DestinationPath "rustinel-x86_64-pc-windows-msvc.zip" -Force
+          Compress-Archive -Path "rustinel-aarch64-pc-windows-msvc" -DestinationPath "rustinel-aarch64-pc-windows-msvc.zip" -Force
+          Write-Output "✓ rustinel-x86_64-pc-windows-msvc.zip"
+          Write-Output "✓ rustinel-aarch64-pc-windows-msvc.zip"
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+      - name: Upload x86_64 package
+        uses: actions/upload-artifact@v4
         with:
-          files: |
-            ${{ steps.get_version.outputs.package_x86_64 }}.zip
-            ${{ steps.get_version.outputs.package_arm64 }}.zip
-          generate_release_notes: true
-          draft: false
-          prerelease: false
-          name: Rustinel ${{ github.ref_name }}
-          body: |
-            ## Installation
+          name: rustinel-x86_64-pc-windows-msvc
+          path: rustinel-x86_64-pc-windows-msvc.zip
+          retention-days: 1
 
-            1. Download the ZIP for your architecture:
-               - **x86_64:** `${{ steps.get_version.outputs.package_x86_64 }}.zip`
-               - **arm64:** `${{ steps.get_version.outputs.package_arm64 }}.zip`
-            2. Extract to your desired location
-            3. Review and customize `config.toml`
-            4. Add Sigma rules to `rules/sigma/`
-            5. Add YARA rules to `rules/yara/`
-            6. Run as Administrator: `.\rustinel.exe run`
-
-            ## Requirements
-
-            - Windows 10/11 or Server 2016+ (x64 or ARM64)
-            - Administrator privileges (required for ETW access)
-            - Rust runtime NOT required (statically linked binary)
-
-            ## What's Changed
-
-            See auto-generated release notes below.
+      - name: Upload arm64 package
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustinel-aarch64-pc-windows-msvc
+          path: rustinel-aarch64-pc-windows-msvc.zip
+          retention-days: 1
